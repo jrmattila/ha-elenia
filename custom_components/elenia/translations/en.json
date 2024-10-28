@@ -1,0 +1,26 @@
+{
+  "config": {
+    "title": "Elenia",
+    "step": {
+      "user": {
+        "title": "Connect to Elenia",
+        "description": "Connect using your Elenia account",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "select_metering_point": {
+        "title": "Metering point",
+        "description": "Select your metering point",
+        "data": {
+          "metering_point": "Metering Point"
+        }
+      }
+    },
+    "error": {
+      "auth": "Authentication failed. Please check your credentials.",
+      "no_metering_points": "No metering points available for your account."
+    }
+  }
+}
