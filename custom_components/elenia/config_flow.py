@@ -69,7 +69,6 @@ class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 address = point["address"]["streetaddress"]
                 fusesize = point["productcode_description"]
                 gsrn = point["gsrn"]
-                model = point["name"]
                 key = f"{customer_id}:{gsrn}"
                 display_name = f"{address}, {fusesize}, {gsrn}"
                 metering_points[key] = display_name
