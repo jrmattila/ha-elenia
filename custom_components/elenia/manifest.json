@@ -3,6 +3,7 @@
   "name": "Elenia",
   "version": "1.0.0",
   "documentation": "https://github.com/jrmattila/ha-elenia",
+  "issue_tracker": "https://github.com/jrmattila/ha-elenia/issues",
   "requirements": [],
   "codeowners": ["@jrmattila"],
   "config_flow": true,
