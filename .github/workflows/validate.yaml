@@ -1,3 +1,4 @@
+name: Validate for hacs
 on:
   push: 
   pull_request:
