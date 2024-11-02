@@ -5,11 +5,12 @@ from typing import TypedDict, List
 import async_timeout
 from homeassistant.util import dt as dt_util
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
-from .const import CONF_GSRN, CONF_CUSTOMER_ID
+from .const import CONF_GSRN, CONF_CUSTOMER_ID, AUTH_CLIENT_ID, UPDATE_INTERVAL
 from custom_components.elenia import AUTH_URL, CUSTOMER_DATA_URL, \
     METER_READING_URL
 import aiohttp
 from homeassistant.core import HomeAssistant
+
 
 class Measurement(TypedDict):
         a: int  # 99220, phases combined
@@ -59,7 +60,7 @@ class EleniaData:
         """Authenticate with AWS Cognito and store tokens."""
         payload = {
             "AuthFlow": "USER_PASSWORD_AUTH",
-            "ClientId": "k4s2pnm04536t1bm72bdatqct",
+            "ClientId": AUTH_CLIENT_ID,
             "AuthParameters": {
                 "USERNAME": self.username,
                 "PASSWORD": self.password,
@@ -84,7 +85,7 @@ class EleniaData:
                             "RefreshToken": auth_result.get("RefreshToken"),
                         }
                         expires_in = auth_result["ExpiresIn"]
-                        self.token_expiration = datetime.utcnow() + timedelta(seconds=expires_in - 60)  # Refresh 1 minute early
+                        self.token_expiration = await self.resolve_expiration_time(expires_in)
                         self.authenticated = True
                         self.logger.debug("Authentication successful")
                     else:
@@ -100,13 +101,13 @@ class EleniaData:
     async def refresh_token(self):
         """Refresh the tokens using the REFRESH_TOKEN_AUTH flow."""
         if not self.tokens.get("RefreshToken"):
-            self.logger.error("No refresh token available to refresh tokens")
+            self.logger.debug("No refresh token available to refresh tokens")
             await self.authenticate()
             return
 
         payload = {
             "AuthFlow": "REFRESH_TOKEN_AUTH",
-            "ClientId": "k4s2pnm04536t1bm72bdatqct",
+            "ClientId": AUTH_CLIENT_ID,
             "AuthParameters": {
                 "REFRESH_TOKEN": self.tokens["RefreshToken"],
             },
@@ -128,20 +129,25 @@ class EleniaData:
                         self.tokens["IdToken"] = auth_result["IdToken"]
 
                         expires_in = auth_result["ExpiresIn"]
-                        self.token_expiration = datetime.utcnow() + timedelta(seconds=expires_in - 60)  # Refresh 1 minute early
+                        self.token_expiration = await self.resolve_expiration_time(expires_in)
                         self.authenticated = True
                         self.logger.debug("Token refresh successful")
                     else:
                         error_text = await resp.text()
-                        self.logger.error(
+                        self.logger.debug(
                             "Token refresh failed: %s - %s", resp.status, error_text
                         )
                         # If refresh fails, re-authenticate
                         await self.authenticate()
         except Exception as e:
-            self.logger.error("Exception during token refresh: %s", str(e))
+            self.logger.debug("Exception during token refresh, retrying authentication: %s", str(e))
             # If an exception occurs, re-authenticate
             await self.authenticate()
+
+    async def resolve_expiration_time(self, expires_in):
+        expiration = datetime.utcnow() + timedelta(seconds=expires_in) - UPDATE_INTERVAL
+        self.logger.debug('Original expiration: %s, Expiration set to %s', expires_in, expiration)
+        return expiration
 
     async def ensure_authenticated(self):
         """Ensure the session is authenticated and tokens are valid."""

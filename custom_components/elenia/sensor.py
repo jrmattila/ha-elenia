@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.const import ENERGY_KILO_WATT_HOUR
+from homeassistant.const import UnitOfEnergy
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 
@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-        hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ):
     elenia_data = hass.data[DOMAIN][entry.entry_id]
 
@@ -43,29 +43,36 @@ async def async_setup_entry(
 
     await coordinator.async_config_entry_first_refresh()
 
-    async_add_entities([
-        EleniaSensor(coordinator, entry, elenia_data, 'a'),
-        EleniaSensor(coordinator, entry, elenia_data, 'a1'),
-        EleniaSensor(coordinator, entry, elenia_data, 'a2'),
-        EleniaSensor(coordinator, entry, elenia_data, 'a3'),
-    ], False)
+    async_add_entities(
+        [
+            EleniaSensor(coordinator, entry, elenia_data, "a"),
+            EleniaSensor(coordinator, entry, elenia_data, "a1"),
+            EleniaSensor(coordinator, entry, elenia_data, "a2"),
+            EleniaSensor(coordinator, entry, elenia_data, "a3"),
+        ],
+        False,
+    )
 
 
 class EleniaSensor(CoordinatorEntity):
-
-    def __init__(self, coordinator, entry, elenia_data, measurement_attribute: Literal['a', 'a1', 'a2', 'a3']):
+    def __init__(
+        self,
+        coordinator,
+        entry,
+        elenia_data,
+        measurement_attribute: Literal["a", "a1", "a2", "a3"],
+    ):
         super().__init__(coordinator)
         self.entry = entry
         self.elenia_data = elenia_data
         self.measurement_attribute = measurement_attribute
         self._name = self.get_name(measurement_attribute)
-        self._unit_of_measurement = ENERGY_KILO_WATT_HOUR
+        self._unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._latest_measurement_time = None
         self._latest_measurement = None
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
-
-    def get_name(self, measurement_attribute: Literal['a', 'a1', 'a2', 'a3']):
+    def get_name(self, measurement_attribute: Literal["a", "a1", "a2", "a3"]):
         match measurement_attribute:
             case "a":
                 return "Electric consumption total"
@@ -82,7 +89,9 @@ class EleniaSensor(CoordinatorEntity):
 
     @property
     def unique_id(self):
-        return f"elenia_energy_{self.entry.data[CONF_GSRN]}_${self.measurement_attribute}"
+        return (
+            f"elenia_energy_{self.entry.data[CONF_GSRN]}_${self.measurement_attribute}"
+        )
 
     @property
     def state(self):
@@ -91,8 +100,13 @@ class EleniaSensor(CoordinatorEntity):
             try:
                 latest_measurement = data[-1]
                 latest_time_str = latest_measurement.get("dt")
-                entry_time = datetime.strptime(latest_time_str, "%Y-%m-%dT%H:%M:%S").replace(
-                    tzinfo=timezone.utc) if latest_time_str else None
+                entry_time = (
+                    datetime.strptime(latest_time_str, "%Y-%m-%dT%H:%M:%S").replace(
+                        tzinfo=timezone.utc
+                    )
+                    if latest_time_str
+                    else None
+                )
 
                 self._latest_measurement_time = entry_time
                 self._latest_measurement = latest_measurement
@@ -135,9 +149,13 @@ class EleniaSensor(CoordinatorEntity):
     def device_info(self) -> DeviceInfo:
         customer_id = self.entry.data[CONF_CUSTOMER_ID]
         gsrn = self.entry.data[CONF_GSRN]
-        meteringpoints = self.elenia_data.customer_data.get(customer_id, {}).get("meteringpoints", [])
-        meteringpoint = next((mp for mp in meteringpoints if mp.get("gsrn") == gsrn), None)
-        product_description = meteringpoint.get("productcode_description", '')
+        meteringpoints = self.elenia_data.customer_data.get(customer_id, {}).get(
+            "meteringpoints", []
+        )
+        meteringpoint = next(
+            (mp for mp in meteringpoints if mp.get("gsrn") == gsrn), None
+        )
+        product_description = meteringpoint.get("productcode_description", "")
         default_manufacturer = f"Elenia, {product_description}"
         default_model = meteringpoint.get("device").get("name")
 
@@ -147,5 +165,5 @@ class EleniaSensor(CoordinatorEntity):
             model=default_model,
             name="Elenia",
             identifiers={(DOMAIN, gsrn)},
-            via_device=(DOMAIN, format_mac(gsrn))
+            via_device=(DOMAIN, format_mac(gsrn)),
         )

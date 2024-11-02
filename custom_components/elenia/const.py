@@ -8,3 +8,4 @@ METER_READING_URL = "https://public.sgp-prod.aws.elenia.fi/api/gen/meter_reading
 UPDATE_INTERVAL = timedelta(hours=1)
 CONF_CUSTOMER_ID = "customer_id"
 CONF_GSRN = "gsrn"
+AUTH_CLIENT_ID = "k4s2pnm04536t1bm72bdatqct"
