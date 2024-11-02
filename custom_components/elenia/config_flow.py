@@ -12,7 +12,7 @@ from .const import (
     AUTH_URL,
     CUSTOMER_DATA_URL,
     CONF_CUSTOMER_ID,
-    CONF_GSRN,
+    CONF_GSRN, AUTH_CLIENT_ID,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class EleniaAPI:
         """Authenticate and obtain tokens."""
         payload = {
             "AuthFlow": "USER_PASSWORD_AUTH",
-            "ClientId": "k4s2pnm04536t1bm72bdatqct",
+            "ClientId": AUTH_CLIENT_ID,
             "AuthParameters": {
                 "USERNAME": self.username,
                 "PASSWORD": self.password,
