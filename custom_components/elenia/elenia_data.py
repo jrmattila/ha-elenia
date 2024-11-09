@@ -1,42 +1,27 @@
 from datetime import datetime, timedelta
 from logging import Logger
-from typing import TypedDict, List
 
 import async_timeout
 from homeassistant.util import dt as dt_util
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
-from .const import CONF_GSRN, CONF_CUSTOMER_ID, AUTH_CLIENT_ID, UPDATE_INTERVAL
-from custom_components.elenia import AUTH_URL, CUSTOMER_DATA_URL, \
-    METER_READING_URL
+from .const import (
+    CONF_GSRN,
+    CONF_CUSTOMER_ID,
+    AUTH_CLIENT_ID,
+    RELAY_CONTROL_URL,
+    UPDATE_INTERVAL,
+)
+from custom_components.elenia import AUTH_URL, CUSTOMER_DATA_URL, METER_READING_URL
 import aiohttp
 from homeassistant.core import HomeAssistant
 
+from .types import (
+    Measurements,
+    RelayData,
+    parse_relay,
+)
+from pydantic import ValidationError
 
-class Measurement(TypedDict):
-        a: int  # 99220, phases combined
-        a1: int  # 15535, phase 1
-        a1_: int  # 0,
-        a2: int  # 49020, phase 2
-        a2_: int  # 0,
-        a3: int  # 34664, phase 3
-        a3_: int  # 0,
-        a_: int  # 0,
-        dt: str  # "2024-10-26T11:45:00" slot 11:40-11.45, time in utc
-        gsrn: int  # 13 digits string,
-        modified: str  # "2024-10-26T16:42:20",
-        quality: int  # 0,
-        r: int  # 1032,
-        r1: int  # null,
-        r1_: int  # null,
-        r2: int  # null,
-        r2_: int  # null,
-        r3: int  # null,
-        r3_: int  # null,
-        r_: int  # null,
-        serialnumber: str  # 16-digits string,
-        source: str  # "ai"
-
-Measurements = List[Measurement]
 
 class EleniaData:
     """Class to manage fetching data from Elenia API."""
@@ -55,6 +40,9 @@ class EleniaData:
         self.customer_token = None  # The token from customer_data_and_token
         self.customer_token_expiry = datetime.utcnow()
         self.logger = logger
+        self.customer_data = None  # set from customer_data
+        self.meteringpoint = None  # set from customer_data
+        self.serialnumber = None  # set from customer_data
 
     async def authenticate(self):
         """Authenticate with AWS Cognito and store tokens."""
@@ -85,7 +73,9 @@ class EleniaData:
                             "RefreshToken": auth_result.get("RefreshToken"),
                         }
                         expires_in = auth_result["ExpiresIn"]
-                        self.token_expiration = await self.resolve_expiration_time(expires_in)
+                        self.token_expiration = await self.resolve_expiration_time(
+                            expires_in
+                        )
                         self.authenticated = True
                         self.logger.debug("Authentication successful")
                     else:
@@ -129,7 +119,9 @@ class EleniaData:
                         self.tokens["IdToken"] = auth_result["IdToken"]
 
                         expires_in = auth_result["ExpiresIn"]
-                        self.token_expiration = await self.resolve_expiration_time(expires_in)
+                        self.token_expiration = await self.resolve_expiration_time(
+                            expires_in
+                        )
                         self.authenticated = True
                         self.logger.debug("Token refresh successful")
                     else:
@@ -140,13 +132,17 @@ class EleniaData:
                         # If refresh fails, re-authenticate
                         await self.authenticate()
         except Exception as e:
-            self.logger.debug("Exception during token refresh, retrying authentication: %s", str(e))
+            self.logger.debug(
+                "Exception during token refresh, retrying authentication: %s", str(e)
+            )
             # If an exception occurs, re-authenticate
             await self.authenticate()
 
     async def resolve_expiration_time(self, expires_in):
         expiration = datetime.utcnow() + timedelta(seconds=expires_in) - UPDATE_INTERVAL
-        self.logger.debug('Original expiration: %s, Expiration set to %s', expires_in, expiration)
+        self.logger.debug(
+            "Original expiration: %s, Expiration set to %s", expires_in, expiration
+        )
         return expiration
 
     async def ensure_authenticated(self):
@@ -162,14 +158,10 @@ class EleniaData:
             return  # Token is still valid
 
         await self.ensure_authenticated()
-        headers = {
-            "Authorization": f"Bearer {self.tokens.get('IdToken')}"
-        }
+        headers = {"Authorization": f"Bearer {self.tokens.get('IdToken')}"}
         try:
             async with async_timeout.timeout(10):
-                async with self.session.get(
-                        CUSTOMER_DATA_URL, headers=headers
-                ) as resp:
+                async with self.session.get(CUSTOMER_DATA_URL, headers=headers) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         self.customer_token = data.get("token")
@@ -182,6 +174,22 @@ class EleniaData:
                         )
                         # Store the customer data
                         self.customer_data = data.get("customer_datas", {})
+
+                        meteringpoints = self.customer_data.get(
+                            self.customer_id, {}
+                        ).get("meteringpoints", [])
+
+                        self.meteringpoint = next(
+                            (
+                                mp
+                                for mp in meteringpoints
+                                if mp.get("gsrn") == self.gsrn
+                            ),
+                            None,
+                        )
+                        self.serialnumber = self.meteringpoint.get(
+                            "device_serialnumber"
+                        )
                         self.logger.debug("Fetched new customer token")
                         return data
                     else:
@@ -196,13 +204,54 @@ class EleniaData:
             self.logger.error("Exception during customer data fetch: %s", str(e))
             raise
 
+    async def fetch_relay_schedule(self) -> RelayData | None:
+        headers = {"Authorization": f"Bearer {self.customer_token}"}
+
+        params = {"gsrn": self.gsrn, "serialnumber": self.serialnumber}
+
+        url = RELAY_CONTROL_URL
+        try:
+            async with async_timeout.timeout(10):
+                async with self.session.get(
+                    url, headers=headers, params=params
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if (
+                            data is None
+                            or not isinstance(data, dict)
+                            or not isinstance(data.get("relay1"), dict)
+                        ):
+                            self.logger.error("Invalid data format received")
+                            return None
+                        try:
+                            return RelayData(
+                                gsrn=data["gsrn"],
+                                serialnumber=data["serialnumber"],
+                                relay1=parse_relay(data.get("relay1")),
+                                relay2=parse_relay(data.get("relay2")),
+                            )
+                        except (KeyError, ValidationError, ValueError) as e:
+                            self.logger.error("Data validation error: %s", str(e))
+                            return None
+
+                    else:
+                        error_text = await resp.text()
+                        self.logger.error(
+                            "Failed to fetch device data: %s - %s",
+                            resp.status,
+                            error_text,
+                        )
+                        return None
+        except Exception as e:
+            self.logger.error("Error during fetching relay data: %s", str(e))
+        return None
+
     async def fetch_5min_readings(self) -> Measurements or None:
         await self.ensure_authenticated()
         await self.fetch_customer_data_and_token()
 
-        headers = {
-            "Authorization": f"Bearer {self.customer_token}"
-        }
+        headers = {"Authorization": f"Bearer {self.customer_token}"}
         params = {
             "customer_ids": self.customer_id,
             "gsrn": self.gsrn,
@@ -213,7 +262,7 @@ class EleniaData:
         try:
             async with async_timeout.timeout(10):
                 async with self.session.get(
-                        url, headers=headers, params=params
+                    url, headers=headers, params=params
                 ) as resp:
                     if resp.status == 200:
                         data: Measurements = await resp.json()
@@ -231,16 +280,14 @@ class EleniaData:
                         return None
 
         except Exception as e:
-            self.logger.error("Exception during data fetch: %s", str(e))
+            self.logger.error("Exception during data fetching readings: %s", str(e))
         return None
 
     async def fetch_meter_readings(self):
         """Fetch the latest hourly consumption data. Used for old metering points"""
         await self.ensure_authenticated()
         await self.fetch_customer_data_and_token()
-        headers = {
-            "Authorization": f"Bearer {self.customer_token}"
-        }
+        headers = {"Authorization": f"Bearer {self.customer_token}"}
         params = {
             "customer_ids": self.customer_id,
             "gsrn": self.gsrn,
@@ -275,4 +322,3 @@ class EleniaData:
     async def close(self):
         """Close the session."""
         await self.session.close()
-

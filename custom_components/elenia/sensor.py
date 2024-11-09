@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal
 
+from .types import RelayData
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -17,21 +18,36 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 
 from .const import DOMAIN, UPDATE_INTERVAL, CONF_GSRN, CONF_CUSTOMER_ID
-from .elenia_data import Measurements
+from .elenia_data import EleniaData, Measurements
+from dataclasses import dataclass
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class CoordinatorData:
+    consumption_data: Measurements
+    relay_schedule_data: RelayData
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ):
-    elenia_data = hass.data[DOMAIN][entry.entry_id]
+    elenia_data: EleniaData = hass.data[DOMAIN][entry.entry_id]
 
     async def async_update_data():
-        data: Measurements = await elenia_data.fetch_5min_readings()
-        if data is None:
-            raise UpdateFailed("Failed to fetch data")
-        return data
+        consumption_data: Measurements = await elenia_data.fetch_5min_readings()
+        if consumption_data is None:
+            raise UpdateFailed("Failed to fetch consumption data")
+        relay_schedule_data = await elenia_data.fetch_relay_schedule()
+        if relay_schedule_data is None:
+            raise UpdateFailed("Failed to fetch relay data")
+
+        return CoordinatorData(consumption_data, relay_schedule_data)
+        return {
+            "consumption_data": consumption_data,
+            "relay_schedule_data": relay_schedule_data,
+        }
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -49,9 +65,50 @@ async def async_setup_entry(
             EleniaSensor(coordinator, entry, elenia_data, "a1"),
             EleniaSensor(coordinator, entry, elenia_data, "a2"),
             EleniaSensor(coordinator, entry, elenia_data, "a3"),
+            RelayScheduleSensor(coordinator, entry, elenia_data, "relay1"),
+            RelayScheduleSensor(coordinator, entry, elenia_data, "relay2"),
         ],
         False,
     )
+
+
+class RelayScheduleSensor(CoordinatorEntity):
+    def __init__(
+        self,
+        coordinator,
+        entry,
+        elenia_data,
+        relay_instance: Literal["relay1", "relay2"],
+    ):
+        super().__init__(coordinator)
+        self._name = "Relay 1" if relay_instance == "relay1" else "Relay 2"
+        self.entry = entry
+        self.elenia_data = elenia_data
+        self.relay_instance = relay_instance
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def unique_id(self):
+        return f"elenia_energy_{self.entry.data[CONF_GSRN]}_${self.relay_instance}"
+
+    @property
+    def state(self):
+        relay_control_data = self.coordinator.data.relay_schedule_data
+
+        return True
+
+    @property
+    def extra_state_attributes(self):
+        attrs = {
+            "data": getattr(
+                self.coordinator.data.relay_schedule_data, self.relay_instance
+            ),
+        }
+
+        return attrs
 
 
 class EleniaSensor(CoordinatorEntity):
@@ -95,7 +152,7 @@ class EleniaSensor(CoordinatorEntity):
 
     @property
     def state(self):
-        data: Measurements = self.coordinator.data
+        data: Measurements = self.coordinator.data.consumption_data
         if data:
             try:
                 latest_measurement = data[-1]
