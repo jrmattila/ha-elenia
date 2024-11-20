@@ -3,16 +3,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import (
-    DOMAIN,
-    PLATFORMS,
-    UPDATE_INTERVAL,
-    AUTH_URL,
-    CUSTOMER_DATA_URL,
-    METER_READING_URL,
-    CONF_CUSTOMER_ID,
-    CONF_GSRN,
-)
+from .const import DOMAIN, PLATFORMS, UPDATE_INTERVAL
 from .elenia_data import EleniaData
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,5 +38,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
-
-

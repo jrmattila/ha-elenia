@@ -1,26 +1,27 @@
 from datetime import datetime, timedelta
 from logging import Logger
+from typing import Literal
 
+import aiohttp
 import async_timeout
+from pydantic import ValidationError
+
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+
 from .const import (
-    CONF_GSRN,
-    CONF_CUSTOMER_ID,
     AUTH_CLIENT_ID,
+    AUTH_URL,
+    CONF_CUSTOMER_ID,
+    CONF_GSRN,
+    CUSTOMER_DATA_URL,
+    METER_READING_URL,
     RELAY_CONTROL_URL,
+    RELAY_MARKET_URL,
     UPDATE_INTERVAL,
 )
-from custom_components.elenia import AUTH_URL, CUSTOMER_DATA_URL, METER_READING_URL
-import aiohttp
-from homeassistant.core import HomeAssistant
-
-from .types import (
-    Measurements,
-    RelayData,
-    parse_relay,
-)
-from pydantic import ValidationError
+from .types import Measurements, RelayData, RelayMarketDataList, parse_relay
 
 
 class EleniaData:
@@ -225,12 +226,15 @@ class EleniaData:
                             self.logger.error("Invalid data format received")
                             return None
                         try:
-                            return RelayData(
+                            relay_data = RelayData(
                                 gsrn=data["gsrn"],
                                 serialnumber=data["serialnumber"],
                                 relay1=parse_relay(data.get("relay1")),
                                 relay2=parse_relay(data.get("relay2")),
                             )
+                            self.logger.debug("Fetched relay schedule")
+                            self.logger.debug(relay_data)
+                            return relay_data
                         except (KeyError, ValidationError, ValueError) as e:
                             self.logger.error("Data validation error: %s", str(e))
                             return None
@@ -247,7 +251,46 @@ class EleniaData:
             self.logger.error("Error during fetching relay data: %s", str(e))
         return None
 
-    async def fetch_5min_readings(self) -> Measurements or None:
+    async def fetch_relay_market(
+        self, relay_id: Literal[1, 2]
+    ) -> RelayMarketDataList | None:
+        headers = {"Authorization": f"Bearer {self.customer_token}"}
+
+        params = {"gsrn": self.gsrn, "relay": relay_id}
+
+        url = RELAY_MARKET_URL
+        try:
+            async with async_timeout.timeout(10):
+                async with self.session.get(
+                    url, headers=headers, params=params
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data is None or not isinstance(data, list):
+                            self.logger.error("Invalid data format received")
+                            return None
+                        try:
+                            relay_market_data = RelayMarketDataList(data)
+                            self.logger.debug("Fetched relay market data")
+                            self.logger.debug(relay_market_data)
+                            return relay_market_data
+                        except (KeyError, ValidationError, ValueError) as e:
+                            self.logger.error("Data validation error: %s", str(e))
+                            return None
+
+                    else:
+                        error_text = await resp.text()
+                        self.logger.error(
+                            "Failed to fetch device data: %s - %s",
+                            resp.status,
+                            error_text,
+                        )
+                        return None
+        except Exception as e:
+            self.logger.error("Error during fetching relay data: %s", str(e))
+        return None
+
+    async def fetch_5min_readings(self) -> Measurements | None:
         await self.ensure_authenticated()
         await self.fetch_customer_data_and_token()
 

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Union, Optional, Literal, TypedDict
 from dataclasses import dataclass, field
 
@@ -33,7 +34,7 @@ Measurements = list[Measurement]
 @dataclass
 class RelayCalendar:
     control_type: Literal["calendar"]
-    subtype: Literal["hours"]
+    subtype: Literal["hours", "default"]
     relayname_user: str
     hours_on: list[int] = field(default_factory=list)
 
@@ -87,3 +88,49 @@ def parse_relay(relay_data: dict) -> Optional[RelayType]:
         )
     else:
         raise ValueError("Unknown relay control type")
+
+
+@dataclass
+class RelayMarketData:
+    day: date
+    gsrn: str
+    message_id: str
+    relay: int
+    status: Literal["valid", "failed"]
+    distribution_prices: list[float] = field(default_factory=list)
+    hours_on: list[int] = field(default_factory=list)
+    prices: list[float] = field(default_factory=list)
+
+    def __post_init__(self):
+        if len(self.distribution_prices) != 24:
+            raise ValueError("distribution_prices must contain exactly 24 elements.")
+        if len(self.prices) != 24:
+            raise ValueError("prices must contain exactly 24 elements.")
+
+        if any(hour < 0 or hour > 23 for hour in self.hours_on):
+            raise ValueError(
+                "Each element in hours_on must be between 0 and 23 inclusive."
+            )
+
+
+@dataclass
+class RelayMarketDataList:
+    data: list[RelayMarketData]
+
+    @classmethod
+    def from_json(cls, json_data: list[dict]) -> "RelayMarketDataList":
+        items = []
+        for item in json_data:
+            items.append(
+                RelayMarketData(
+                    day=item["day"],
+                    distribution_prices=item["distribution_prices"],
+                    gsrn=item["gsrn"],
+                    hours_on=item["hours_on"],
+                    message_id=item["message_id"],
+                    prices=item["prices"],
+                    relay=item["relay"],
+                    status=item["status"],
+                )
+            )
+        return cls(data=items)
