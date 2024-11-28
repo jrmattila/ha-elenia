@@ -1,36 +1,41 @@
 import logging
 
-import voluptuous as vol
 import aiohttp
 import async_timeout
+import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from .const import (
-    DOMAIN,
+    AUTH_CLIENT_ID,
     AUTH_URL,
-    CUSTOMER_DATA_URL,
     CONF_CUSTOMER_ID,
-    CONF_GSRN, AUTH_CLIENT_ID,
+    CONF_GSRN,
+    CUSTOMER_DATA_URL,
+    DOMAIN, CONF_PRICE_SENSOR_FOR_EACH_HOUR, CONF_RELAY_SENSOR_FOR_EACH_HOUR,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
+class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self):
         self.credentials = {}
         self.customer_data = {}
         self.elenia_api = None
+        self.add_price_sensor_for_each_hour = True
+        self.add_relay_sensor_for_each_hour = True
 
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input is not None:
             self.credentials = user_input
-            self.elenia_api = EleniaAPI(user_input[CONF_USERNAME], user_input[CONF_PASSWORD])
+            self.elenia_api = EleniaAPI(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+            )
             try:
                 await self.elenia_api.authenticate()
                 customer_data = await self.elenia_api.fetch_customer_data_and_token()
@@ -46,7 +51,9 @@ class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_PASSWORD): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=data_schema, errors=errors)
+        return self.async_show_form(
+            step_id="user", data_schema=data_schema, errors=errors
+        )
 
     async def async_step_select_metering_point(self, user_input=None):
         errors = {}
@@ -58,6 +65,8 @@ class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PASSWORD: self.credentials[CONF_PASSWORD],
                 CONF_CUSTOMER_ID: customer_id,
                 CONF_GSRN: gsrn,
+                CONF_PRICE_SENSOR_FOR_EACH_HOUR: user_input[CONF_PRICE_SENSOR_FOR_EACH_HOUR],
+                CONF_RELAY_SENSOR_FOR_EACH_HOUR: user_input[CONF_RELAY_SENSOR_FOR_EACH_HOUR]
             }
             await self.elenia_api.close()
             return self.async_create_entry(title="Elenia", data=data)
@@ -80,9 +89,13 @@ class EleniaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema(
             {
                 vol.Required("metering_point"): vol.In(metering_points),
+                vol.Required(CONF_PRICE_SENSOR_FOR_EACH_HOUR, default=True): bool,
+                vol.Required(CONF_RELAY_SENSOR_FOR_EACH_HOUR, default=True): bool,
             }
         )
-        return self.async_show_form(step_id="select_metering_point", data_schema=data_schema, errors=errors)
+        return self.async_show_form(
+            step_id="select_metering_point", data_schema=data_schema, errors=errors
+        )
 
 
 class EleniaAPI:
@@ -133,12 +146,10 @@ class EleniaAPI:
             raise
 
     async def fetch_customer_data_and_token(self):
-        """Fetch customer data and get the token. This is a separate token to access metering data. """
+        """Fetch customer data and get the token. This is a separate token to access metering data."""
         if not self.authenticated:
             await self.authenticate()
-        headers = {
-            "Authorization": f"Bearer {self.tokens.get('IdToken')}"
-        }
+        headers = {"Authorization": f"Bearer {self.tokens.get('IdToken')}"}
         try:
             async with async_timeout.timeout(10):
                 async with self.session.get(

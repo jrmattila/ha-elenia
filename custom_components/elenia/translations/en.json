@@ -14,7 +14,9 @@
         "title": "Metering point",
         "description": "Select your metering point",
         "data": {
-          "metering_point": "Metering Point"
+          "metering_point": "Metering Point",
+          "price_sensor_for_each_hour": "Add separate price sensor for each hour (0-23)",
+          "relay_sensor_for_each_hour":"Add separate relay sensor for each hour (0-23)"
         }
       }
     },
