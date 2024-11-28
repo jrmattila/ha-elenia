@@ -19,7 +19,7 @@ At the moment only newer metering devices are supported.
 Define first a Utility Meter -helper to collect hourly data. Set total consumption sensor as an input sensor. Meter reset cycle should be set to "Hourly".
 [Apexcharts-card](https://github.com/RomRider/apexcharts-card) can be used to show hourly consumption data in a graph:
 
-<img src="https://github.com/jrmattila/ha-elenia/blob/main/docs/apexcharts-example.png?raw=true" width="200">
+<img src="https://github.com/jrmattila/ha-elenia/blob/main/docs/apexcharts-example.png?raw=true" width="400">
 
 Example config:
 ```yaml
