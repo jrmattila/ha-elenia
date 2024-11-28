@@ -159,7 +159,7 @@ class PriceSensor(CoordinatorEntity):
             case "distribution_prices":
                 return f"Distribution price {name_suffix}"
             case "total":
-                return f"Price now {name_suffix}"
+                return f"Price {name_suffix}"
             case _:
                 raise Exception(f"Price type not supported, got {price_type}")
 
@@ -246,6 +246,7 @@ class RelaySensor(BinarySensorEntity, CoordinatorEntity):
         _LOGGER.debug(f"Relay state found: {is_toggled}")
 
         return is_toggled
+
 
 class ConsumptionSensor(CoordinatorEntity):
     def __init__(
