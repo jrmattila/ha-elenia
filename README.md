@@ -3,6 +3,7 @@
 This is a custom component to integrate Home Assistant with Elenia
 ## Setup
 Add to hacs as a custom repository:
+
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jrmattila&repository=ha-elenia&category=Integration)
 
 ## Features
